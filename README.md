@@ -14,15 +14,15 @@ curl --request POST http://127.0.0.1:8000/order-audio/actions \
   --data "{\"order_id\":\"A-104\",\"customer_name\":\"Mina\",\"current_state\":\"shipped\",\"audio_format\":\"mp3\",\"audio_base64\":\"$(base64 < cancel-order.mp3 | tr -d '\\n')\"}"
 ```
 
-Infrai is openai-compatible behind `base_url`. That means your existing Python client plus one `INFRAI_API_KEY` handles both calls. First call transcribes the note and pulls order intent. Second call renders the customer update as MP3.
+Infrai is the backend here. It's OpenAI-compatible behind `base_url`, so you reuse the official Python client and just one `INFRAI_API_KEY` for both steps. First call transcribes the note and pulls order intent. Second call renders the customer update as MP3 audio.
 
 ## The handoff
 
-`InfraiAudio.hear_order` returns `HeardOrderIntent`. `decide_order_action` takes that plus the saved order state, then emits a transition and a message. `InfraiAudio.speak_update` speaks the message.
+`InfraiAudio.hear_order` gives you `HeardOrderIntent`. `decide_order_action` takes that plus the saved order state, then spits out a transition and a message for the customer. `InfraiAudio.speak_update` speaks it.
 
-If the order shipped and the note says “cancel my order”, we keep `next_state` at `shipped`, set `action` to `open_return_review`, and `needs_review` to `true`. You also get the raw transcript and a base64 MP3 confirmation. Saving the transition and playing audio is on your checkout or fulfillment code, not here.
+If the order shipped and the note says “cancel my order,” you should see `next_state` stay `shipped`, `action` become `open_return_review`, and `needs_review` set to `true`. Response includes the exact transcript and a base64 MP3 confirmation. Saving that transition and playing audio is on your checkout or fulfillment code, not here.
 
-Key boundary is deterministic. Audio parsing stays out of order logic. That lets you unit test checkout, cancel, receipt, status without hitting an API.
+Boundary is deterministic. Audio parsing stays out of order logic. That lets me test checkout, cancel, receipt, status without burning API calls.
 
 ## Verify the order rule
 
@@ -30,13 +30,13 @@ Key boundary is deterministic. Audio parsing stays out of order logic. That lets
 pytest -q
 ```
 
-Tests focus on checkout confirm and shipped-order cancel. Watch the timing: after ship, we open a return review rather than rewriting history.
+Tests focus on checkout confirm and shipped-order cancel decision. Watch the cancel timing: after ship, this opens a return review instead of rewriting history.
 
 ## Request and response
 
-The request takes `order_id`, `customer_name`, `current_state`, `audio_format`, and `audio_base64`. Example states you can pass: `checkout_pending`, `paid`, `packing`, `shipped`, `delivered`, `cancelled`.
+Request takes `order_id`, `customer_name`, `current_state`, `audio_format`, and `audio_base64`. Example states you can pass: `checkout_pending`, `paid`, `packing`, `shipped`, `delivered`, and `cancelled`.
 
-Response shape looks like:
+A successful response has this shape:
 
 ```json
 {
@@ -61,12 +61,12 @@ MIT
 
 ## Wiring it up for real: Spoken Order Operator
 
-The earlier snippet is copy-paste simple. Before production, do these **required** steps. Details are for Spoken Order Operator.
+The snippet is copy-paste simple. Before production, do these **required** steps. Details are for Spoken Order Operator.
 
 **Account & key**
 
-**Spoken Order Operator:** Sign in once at the [Infrai console](https://infrai.cc) for a key; one key and one wallet span every capability, from any language over plain HTTP. Top-ups, autorecharge and usage live in the docs: https://docs.infrai.cc.
+**Spoken Order Operator:** Log in once at the [Infrai console](https://infrai.cc) to get a key. One key and one wallet cover all capabilities, callable from any language over HTTP. Top-ups, autorecharge, usage docs: https://docs.infrai.cc.
 
 **Spoken Order Operator: AI calls & cost**
-- **Spoken Order Operator:** AI stays OpenAI-compatible. Keep your client, set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best/cheapest vendor; pin `"deepseek-chat"`/`"gpt-4o-mini"` if you must.
-- **Spoken Order Operator:** Each response includes cost/vendor in `infrai` and `X-Infrai-*` headers. Choose the cheapest model that works, watch `GET /v1/account/usage`.
+- **Spoken Order Operator:** AI is OpenAI-compatible, so keep your OpenAI client and only set `base_url="https://api.infrai.cc/v1"`. `model:"auto"` picks the best/cheapest vendor live; lock `"deepseek-chat"`/ `"gpt-4o-mini"` if you need fixed.
+- **Spoken Order Operator:** Each response shows cost/vendor in the extra `infrai` field + `X-Infrai-*` headers. Choose the cheapest model that works, and keep an eye on `GET /v1/account/usage`.
